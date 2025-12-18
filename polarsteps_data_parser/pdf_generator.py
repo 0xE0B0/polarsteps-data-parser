@@ -19,11 +19,14 @@ class PDFGenerator:
     HEADING_FONT = ("Helvetica-Bold", 16)
     TITLE_HEADING_FONT = ("Helvetica-Bold", 36)
 
-    def __init__(self, output: str, emoji_font_path: Path | str | None = None) -> None:
+    def __init__(self, output: str, emoji_font_path: Path | str | None = None, portrait_height: int = 320, landscape_width: int = 350) -> None:
         self.filename = output
         self.canvas = None
         self.width, self.height = letter
         self.y_position = self.height - 30
+        # Configurable image sizing (in points): portraits specify height, landscapes specify width
+        self.portrait_height = float(portrait_height)
+        self.landscape_width = float(landscape_width)
         # If an emoji-capable TTF is provided, register it and use it as the main font
         if emoji_font_path is not None:
             self.register_font(emoji_font_path)
@@ -65,8 +68,26 @@ class PDFGenerator:
             self.short_text(comment.follower.name, bold=True)
             self.long_text(comment.text)
 
-        for photo in step.photos:
-            self.photo(photo)
+        # Layout photos: if two consecutive photos are both portrait, place side-by-side
+        photos = step.photos
+        i = 0
+        while i < len(photos):
+            if i + 1 < len(photos):
+                try:
+                    img1 = ImageReader(photos[i])
+                    img2 = ImageReader(photos[i + 1])
+                    w1, h1 = img1.getSize()
+                    w2, h2 = img2.getSize()
+                    if h1 > w1 and h2 > w2:
+                        self.photo_side_by_side(photos[i], photos[i + 1])
+                        i += 2
+                        continue
+                except Exception:
+                    # If ImageReader fails, fall back to drawing sequentially
+                    pass
+            # Single image: center it on the page
+            self.photo(photos[i], centered=True)
+            i += 1
 
     def new_page(self) -> None:
         """Add a new page to the canvas."""
@@ -149,24 +170,114 @@ class PDFGenerator:
             self.y_position -= 20
         self.y_position -= 20
 
-    def photo(self, photo_path: Path | str, centered: bool = False, photo_width: int = 250) -> None:
-        """Add photo to canvas."""
+    def photo(self, photo_path: Path | str, centered: bool = False, photo_width: int | None = None, photo_height: int | None = None) -> None:
+        """Add photo to canvas.
+
+        Uses configurable sizing depending on orientation (constructor defaults):
+        - Portrait images: height = self.portrait_height (override via `photo_height`)
+        - Landscape images: width = self.landscape_width (override via `photo_width`)
+        Pass `photo_width` or `photo_height` to override the target size for a specific image.
+        """
         image = ImageReader(photo_path)
         img_width, img_height = image.getSize()
         aspect = img_height / float(img_width)
-        new_height = photo_width * aspect
-        if self.y_position - new_height < 50:
+
+        # Decide draw size based on orientation and overrides
+        if img_height > img_width:
+            # Portrait: use photo_height override or configured portrait_height
+            if photo_height is not None:
+                draw_height = float(photo_height)
+            else:
+                draw_height = float(self.portrait_height)
+            draw_width = draw_height / aspect
+        else:
+            # Landscape or square: use photo_width override or configured landscape_width
+            if photo_width is not None:
+                draw_width = float(photo_width)
+            else:
+                draw_width = float(self.landscape_width)
+            draw_height = draw_width * aspect
+
+        # Cap the width to available page width (margins: 30 on both sides -> width - 60)
+        max_width = self.width - 60
+        if draw_width > max_width:
+            scale = max_width / draw_width
+            draw_width *= scale
+            draw_height *= scale
+
+        if self.y_position - draw_height < 50:
             self.canvas.showPage()
             self.y_position = self.height - 30
+
+        x = (self.width - draw_width) / 2.0 if centered else 30
         self.canvas.drawImage(
             image,
-            (self.width - photo_width) / 2.0 if centered else 30,
-            self.y_position - new_height,
-            width=photo_width,
-            height=new_height,
+            x,
+            self.y_position - draw_height,
+            width=draw_width,
+            height=draw_height,
         )
-        self.y_position = self.y_position - new_height - 20
+        self.y_position = self.y_position - draw_height - 20
 
+    def photo_side_by_side(
+        self,
+        photo_path1: Path | str,
+        photo_path2: Path | str,
+        centered: bool = True,
+        photo_height: int | None = None,
+        gap: int = 10,
+    ) -> None:
+        """Layout two images side-by-side.
+
+        Uses `photo_height` if provided; otherwise each portrait image uses the configured `portrait_height`.
+        If combined width exceeds page margins, both images are scaled down uniformly.
+        """
+        image1 = ImageReader(photo_path1)
+        img1_w, img1_h = image1.getSize()
+        aspect1 = img1_h / float(img1_w)
+
+        image2 = ImageReader(photo_path2)
+        img2_w, img2_h = image2.getSize()
+        aspect2 = img2_h / float(img2_w)
+
+        # Only do side-by-side if both images are portrait; otherwise fall back to stacked
+        if not (img1_h > img1_w and img2_h > img2_w):
+            self.photo(photo_path1, centered=centered, photo_height=photo_height)
+            self.photo(photo_path2, centered=centered, photo_height=photo_height)
+            return
+
+        # Both images are portrait here (caller checks), determine target height
+        target_height = float(photo_height) if photo_height is not None else float(self.portrait_height)
+        h1 = target_height
+        w1 = target_height / aspect1
+        h2 = target_height
+        w2 = target_height / aspect2
+
+        total_width = w1 + gap + w2
+        max_width = self.width - 60
+        if total_width > max_width:
+            scale = max_width / total_width
+            w1 *= scale
+            h1 *= scale
+            w2 *= scale
+            h2 *= scale
+            total_width = max_width
+
+        pair_height = max(h1, h2)
+
+        if self.y_position - pair_height < 50:
+            self.canvas.showPage()
+            self.y_position = self.height - 30
+
+        x_left = (self.width - total_width) / 2.0 if centered else 30
+        x1 = x_left
+        x2 = x_left + w1 + gap
+
+        # Draw images (aligned to top of current y_position)
+        self.canvas.drawImage(image1, x1, self.y_position - h1, width=w1, height=h1)
+        self.canvas.drawImage(image2, x2, self.y_position - h2, width=w2, height=h2)
+
+        self.y_position = self.y_position - pair_height - 20
     def wrap_text(self, text: str, max_width: int) -> list:
         """Wrap text to fit within max_width."""
         self.canvas.setFont(*self.MAIN_FONT)
