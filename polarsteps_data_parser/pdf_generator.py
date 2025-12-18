@@ -19,7 +19,7 @@ class PDFGenerator:
     HEADING_FONT = ("Helvetica-Bold", 16)
     TITLE_HEADING_FONT = ("Helvetica-Bold", 36)
 
-    def __init__(self, output: str, emoji_font_path: Path | str | None = None, portrait_height: int = 320, landscape_width: int = 350) -> None:
+    def __init__(self, output: str, emoji_font_path: Path | str | None = None, portrait_height: int = 330, landscape_width: int = 250, side_by_side_gap: int = 20, photo_padding: float = 3.0, photo_border_width: float = 0.5) -> None:
         self.filename = output
         self.canvas = None
         self.width, self.height = letter
@@ -27,6 +27,11 @@ class PDFGenerator:
         # Configurable image sizing (in points): portraits specify height, landscapes specify width
         self.portrait_height = float(portrait_height)
         self.landscape_width = float(landscape_width)
+        # Global default gap for side-by-side photos
+        self.side_by_side_gap = int(side_by_side_gap)
+        # Global defaults for image borders/padding
+        self.photo_padding = float(photo_padding)
+        self.photo_border_width = float(photo_border_width)
         # If an emoji-capable TTF is provided, register it and use it as the main font
         if emoji_font_path is not None:
             self.register_font(emoji_font_path)
@@ -264,14 +269,44 @@ class PDFGenerator:
             self.new_page()
 
         x = (self.width - draw_width) / 2.0 if centered else 30
-        self.canvas.drawImage(
-            image,
-            x,
-            self.y_position - draw_height,
-            width=draw_width,
-            height=draw_height,
-        )
+        y_bottom = self.y_position - draw_height
+        self._draw_image_with_border(image, x, y_bottom, draw_width, draw_height)
         self.y_position = self.y_position - draw_height - 20
+
+    def _draw_image_with_border(self, image, x: float, y: float, width: float, height: float, padding: float | None = None, border_width: float | None = None) -> None:
+        """Draw an image with a small white padding and a thin black border.
+
+        Defaults for padding and border width come from instance configuration (`photo_padding`, `photo_border_width`) when None is provided.
+
+        Args:
+            image: ImageReader or image-like accepted by drawImage.
+            x, y: bottom-left coordinates where image will be placed.
+            width, height: size of the image in points.
+            padding: white padding around the image in points (defaults to self.photo_padding).
+            border_width: stroke width of the outer black border (defaults to self.photo_border_width).
+        """
+        if padding is None:
+            padding = float(getattr(self, "photo_padding", 4.0))
+        if border_width is None:
+            border_width = float(getattr(self, "photo_border_width", 0.5))
+
+        border_x = x - padding
+        border_y = y - padding
+        border_w = width + (padding * 2)
+        border_h = height + (padding * 2)
+
+        # Use save/restore to avoid changing colors globally
+        self.canvas.saveState()
+        # white background rectangle (padding)
+        self.canvas.setFillColorRGB(1, 1, 1)
+        self.canvas.rect(border_x, border_y, border_w, border_h, stroke=0, fill=1)
+        # draw image on top
+        self.canvas.drawImage(image, x, y, width=width, height=height)
+        # thin black border
+        self.canvas.setLineWidth(border_width)
+        self.canvas.setStrokeColorRGB(0, 0, 0)
+        self.canvas.rect(border_x, border_y, border_w, border_h, stroke=1, fill=0)
+        self.canvas.restoreState()
 
     def photo_side_by_side(
         self,
@@ -279,12 +314,12 @@ class PDFGenerator:
         photo_path2: Path | str,
         centered: bool = True,
         photo_height: int | None = None,
-        gap: int = 10,
+        gap: int | None = None,
     ) -> None:
         """Layout two images side-by-side.
 
         Uses `photo_height` if provided; otherwise each portrait image uses the configured `portrait_height`.
-        If combined width exceeds page margins, both images are scaled down uniformly.
+        Gap between images defaults to the instance's `side_by_side_gap` if not provided. If combined width exceeds page margins, both images are scaled down uniformly.
         """
         image1 = ImageReader(photo_path1)
         img1_w, img1_h = image1.getSize()
@@ -299,6 +334,10 @@ class PDFGenerator:
             self.photo(photo_path1, centered=centered, photo_height=photo_height)
             self.photo(photo_path2, centered=centered, photo_height=photo_height)
             return
+
+        # If gap not provided, use global default
+        if gap is None:
+            gap = int(self.side_by_side_gap)
 
         # Both images are portrait here (caller checks), determine target height
         target_height = float(photo_height) if photo_height is not None else float(self.portrait_height)
@@ -326,9 +365,9 @@ class PDFGenerator:
         x1 = x_left
         x2 = x_left + w1 + gap
 
-        # Draw images (aligned to top of current y_position)
-        self.canvas.drawImage(image1, x1, self.y_position - h1, width=w1, height=h1)
-        self.canvas.drawImage(image2, x2, self.y_position - h2, width=w2, height=h2)
+        # Draw images (aligned to top of current y_position) with border
+        self._draw_image_with_border(image1, x1, self.y_position - h1, w1, h1)
+        self._draw_image_with_border(image2, x2, self.y_position - h2, w2, h2)
 
         self.y_position = self.y_position - pair_height - 20
     def wrap_text(self, text: str, max_width: int) -> list:
