@@ -6,17 +6,22 @@ import click
 import time
 
 
-def load_json_from_file(path: Path) -> dict:
+def load_json_from_file(path: Path, max_steps: int = None) -> dict:
     """Load content from file and convert to JSON object.
 
     Args:
         path: path to file
-
+        max_steps: maximum number of steps to load
     Returns:
         dict: parsed JSON
     """
     with open(path, "r") as file:
-        return json.load(file)
+        data = json.load(file)
+        if max_steps is not None and "all_steps" in data:
+            data["all_steps"] = data["all_steps"][:max_steps]
+        log(f"✅  Loaded data from {path}", color="green", bold=True)
+        log(f"    - Total steps loaded: {len(data.get('all_steps', []))}", color="green", bold=True)
+        return data
 
 
 def parse_date(date: str) -> datetime:

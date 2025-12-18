@@ -38,15 +38,15 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     input_folder = Path(input_folder)
     trip_data_path = input_folder / "trip.json"
     location_data_path = input_folder / "locations.json"
-
+    max_steps = 4
     if not trip_data_path.exists() or not location_data_path.exists():
         log("Error: Cannot find Polarsteps trip in folder!")
         log("Please make sure the input folder contains a `trip.json` and a `locations.json` file. ")
         return
 
     log("✅  Found Polarsteps trip", color="green", bold=True)
-    trip_data = load_json_from_file(trip_data_path)
-    location_data = load_json_from_file(location_data_path)
+    trip_data = load_json_from_file(trip_data_path, max_steps)
+    location_data = load_json_from_file(location_data_path, max_steps)
 
     log("🔄 Starting to parse trip...", color="cyan")
     trip = Trip.from_json(trip_data)
@@ -57,7 +57,7 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     [Location.from_json(data) for data in location_data["locations"]]  # TODO! use location data
 
     log("🔄 Generating PDF...", color="cyan")
-    pdf_generator = PDFGenerator(output)
+    pdf_generator = PDFGenerator(output, emoji_font_path="C:/Windows/Fonts/seguiemj.ttf")
     pdf_generator.generate_pdf(trip)
     log(f"✅  Generated report: {click.format_filename(output)}", color="green", bold=True)
 

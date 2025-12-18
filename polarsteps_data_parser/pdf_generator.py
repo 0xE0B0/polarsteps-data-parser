@@ -2,7 +2,9 @@ from pathlib import Path
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 
 from polarsteps_data_parser.model import Trip, Step
@@ -17,11 +19,14 @@ class PDFGenerator:
     HEADING_FONT = ("Helvetica-Bold", 16)
     TITLE_HEADING_FONT = ("Helvetica-Bold", 36)
 
-    def __init__(self, output: str) -> None:
+    def __init__(self, output: str, emoji_font_path: Path | str | None = None) -> None:
         self.filename = output
         self.canvas = None
         self.width, self.height = letter
         self.y_position = self.height - 30
+        # If an emoji-capable TTF is provided, register it and use it as the main font
+        if emoji_font_path is not None:
+            self.register_font(emoji_font_path)
 
     def generate_pdf(self, trip: Trip) -> None:
         """Generate a PDF for a given trip."""
@@ -51,8 +56,8 @@ class PDFGenerator:
 
         self.heading(step.name)
 
-        self.short_text(f"Location: {step.location.name}, {step.location.country}")
-        self.short_text(f"Date: {step.date.strftime('%d-%m-%Y')}")
+        self.short_text(f"Ort: {step.location.name}, {step.location.country}")
+        self.short_text(f"Datum: {step.date.strftime('%d-%m-%Y')}")
 
         self.long_text(step.description)
 
@@ -69,19 +74,44 @@ class PDFGenerator:
         self.width, self.height = letter
         self.y_position = self.height - 30
 
+    def register_font(self, font_path: Path | str, font_name: str | None = None) -> None:
+        """Register a TTF font and set it as MAIN_FONT.
+
+        Args:
+            font_path: Path to a .ttf font file that includes emoji glyphs.
+            font_name: Optional internal name for the registered font.
+        Raises:
+            FileNotFoundError: If the font file is not found.
+        """
+        font_path = Path(font_path)
+        if not font_path.exists():
+            raise FileNotFoundError(f"Font file not found: {font_path}")
+        name = font_name or f"TTF-{font_path.stem}"
+        pdfmetrics.registerFont(TTFont(name, str(font_path)))
+        # Preserve the configured size from MAIN_FONT
+        size = self.MAIN_FONT[1] if isinstance(self.MAIN_FONT, tuple) else 12
+        self.MAIN_FONT = (name, size)
+
     def heading(self, text: str) -> None:
         """Add heading to canvas."""
         if self.y_position < 50:
             self.new_page()
-        self.canvas.setFont(*self.HEADING_FONT)
+        # If text contains non-ASCII (emoji or other glyphs), use the registered MAIN_FONT at heading size
+        font_to_use = self.HEADING_FONT
+        if any(ord(ch) > 127 for ch in text):
+            font_to_use = (self.MAIN_FONT[0], self.HEADING_FONT[1])
+        self.canvas.setFont(*font_to_use)
         self.canvas.drawString(30, self.y_position, text)
         self.y_position -= 30
 
     def title_heading(self, text: str) -> None:
         """Add heading to canvas."""
         self.y_position -= 100
-        self.canvas.setFont(*self.TITLE_HEADING_FONT)
-        self.canvas.drawString(self.calc_width_centered(text, self.TITLE_HEADING_FONT), self.y_position, text)
+        font_to_use = self.TITLE_HEADING_FONT
+        if any(ord(ch) > 127 for ch in text):
+            font_to_use = (self.MAIN_FONT[0], self.TITLE_HEADING_FONT[1])
+        self.canvas.setFont(*font_to_use)
+        self.canvas.drawString(self.calc_width_centered(text, font_to_use), self.y_position, text)
         self.y_position -= 30
 
     def calc_width_centered(self, text: str, font: tuple) -> float:
@@ -92,9 +122,15 @@ class PDFGenerator:
         """Add short text to canvas."""
         if self.y_position < 50:
             self.new_page()
-        font = self.BOLD_FONT if bold else self.MAIN_FONT
+        if bold:
+            font = self.BOLD_FONT
+            # If bold font may not contain emojis, fall back to main registered TTF
+            if any(ord(ch) > 127 for ch in text):
+                font = (self.MAIN_FONT[0], self.BOLD_FONT[1])
+        else:
+            font = self.MAIN_FONT
         self.canvas.setFont(*font)
-        width = self.calc_width_centered(text, self.MAIN_FONT) if centered else 30
+        width = self.calc_width_centered(text, font) if centered else 30
         self.canvas.drawString(width, self.y_position, text)
         self.y_position -= 20
 
