@@ -73,7 +73,14 @@ class PDFGenerator:
 
         self.heading(step.name)
 
-        self.short_text(f"Ort: {step.location.name}, {step.location.country}")
+        # Show location and right-aligned weather info if available
+        left = f"Ort: {step.location.name}, {step.location.country}"
+        weather_text = self._format_weather(step.weather_condition, step.weather_temperature)
+        if weather_text:
+            self.short_text_with_right(left, weather_text)
+        else:
+            self.short_text(left)
+
         self.short_text(f"Datum: {step.date.strftime('%d-%m-%Y')}")
 
         self.long_text(step.description)
@@ -213,6 +220,48 @@ class PDFGenerator:
         self.canvas.setFont(*font)
         width = self.calc_width_centered(text, font) if centered else 30
         self.canvas.drawString(width, self.y_position, text)
+        self.y_position -= 20
+
+    def short_text_with_right(self, left_text: str, right_text: str, bold_left: bool = False, bold_right: bool = False) -> None:
+        """Draw left-aligned `left_text` at margin and right-aligned `right_text` on the same line.
+
+        If both pieces of text would overlap, the right_text is pushed to the next line (right aligned).
+        """
+        if self.y_position < 50:
+            self.new_page()
+
+        # Fonts
+        left_font = self.BOLD_FONT if bold_left else self.MAIN_FONT
+        if any(ord(ch) > 127 for ch in left_text) and bold_left:
+            left_font = (self.MAIN_FONT[0], self.BOLD_FONT[1])
+        right_font = self.BOLD_FONT if bold_right else self.MAIN_FONT
+        if any(ord(ch) > 127 for ch in right_text) and bold_right:
+            right_font = (self.MAIN_FONT[0], self.BOLD_FONT[1])
+
+        # Draw left text
+        self.canvas.setFont(*left_font)
+        left_x = 30
+        self.canvas.drawString(left_x, self.y_position, left_text)
+        left_end = left_x + stringWidth(left_text, *left_font)
+
+        # Compute right position
+        right_w = stringWidth(right_text, *right_font)
+        right_x = self.width - 30 - right_w
+
+        # If overlap, push right text to next line
+        if right_x <= left_end + 8:
+            # next line: decrement y then draw right-aligned text
+            self.y_position -= 20
+            self.canvas.setFont(*right_font)
+            right_w = stringWidth(right_text, *right_font)
+            right_x = self.width - 30 - right_w
+            self.canvas.drawString(right_x, self.y_position, right_text)
+            self.y_position -= 20
+            return
+
+        # Draw right text on same line
+        self.canvas.setFont(*right_font)
+        self.canvas.drawString(right_x, self.y_position, right_text)
         self.y_position -= 20
 
     def long_text(self, text: str) -> None:
@@ -370,6 +419,33 @@ class PDFGenerator:
         self._draw_image_with_border(image2, x2, self.y_position - h2, w2, h2)
 
         self.y_position = self.y_position - pair_height - 20
+
+    def _format_weather(self, condition: str | None, temp: float | None) -> str:
+        """Format weather info as a short string with an emoji (when known) and temperature.
+
+        Examples: '⛅ 19°C' or 'Partly Cloudy 19°C' if emoji not mapped.
+        """
+        if not condition and temp is None:
+            return ""
+        # Map known conditions to compact emoji
+        mapping = {
+            "partly-cloudy-day": "⛅",
+            "partly-cloudy-night": "☁️",
+            "cloudy": "☁️",
+            "rain": "🌧️",
+            "clear-day": "☀️",
+            "clear-night": "🌙",
+            "snow": "❄️",
+            "fog": "🌫️",
+            "wind": "💨",
+        }
+        emoji = mapping.get(condition, "")
+        if not emoji:
+            # fallback to readable label
+            emoji = (condition.replace("-", " ").title() if condition else "")
+        temp_text = f"{int(round(temp))}°C" if temp is not None else ""
+        return f"{emoji} {temp_text}".strip()
+
     def wrap_text(self, text: str, max_width: int) -> list:
         """Wrap text to fit within max_width."""
         self.canvas.setFont(*self.MAIN_FONT)

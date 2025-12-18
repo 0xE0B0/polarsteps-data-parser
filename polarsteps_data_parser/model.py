@@ -97,6 +97,9 @@ class Step:
     photos: list[Path]
     videos: list[Path]
     comments: list[StepComment]
+    # Optional weather info (may not be present in older exports)
+    weather_condition: str | None = None
+    weather_temperature: float | None = None
 
     @classmethod
     def from_json(cls, data: dict) -> Self:
@@ -110,6 +113,8 @@ class Step:
             photos=[],
             videos=[],
             comments=[],
+            weather_condition=data.get("weather_condition"),
+            weather_temperature=data.get("weather_temperature"),
         )
         s.load_media()
         return s

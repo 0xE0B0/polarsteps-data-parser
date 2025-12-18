@@ -38,7 +38,7 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     input_folder = Path(input_folder)
     trip_data_path = input_folder / "trip.json"
     location_data_path = input_folder / "locations.json"
-    max_steps = 4
+    max_steps = 500
     if not trip_data_path.exists() or not location_data_path.exists():
         log("Error: Cannot find Polarsteps trip in folder!")
         log("Please make sure the input folder contains a `trip.json` and a `locations.json` file. ")
