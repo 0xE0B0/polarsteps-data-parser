@@ -35,13 +35,22 @@ class PDFGenerator:
         """Generate a PDF for a given trip."""
         self.canvas = Canvas(self.filename, pagesize=letter)
 
+        # Track page numbers, trip name and step counts for footer
+        self.page_number = 1
+        self.current_trip_name = trip.name
+        self.total_steps = len(trip.steps)
+        self.current_step = 0
+
         self.canvas.setTitle(trip.name)
 
         self.generate_title_page(trip)
 
-        for i, step in tqdm(enumerate(trip.steps), desc="Generating pages", total=len(trip.steps), ncols=80):
+        for i, step in enumerate(trip.steps, start=1):
+            self.current_step = i
             self.generate_step_pages(step)
 
+        # Draw footer on the final page then save
+        self._draw_footer()
         self.canvas.save()
 
     def generate_title_page(self, trip: Trip) -> None:
@@ -89,9 +98,55 @@ class PDFGenerator:
             self.photo(photos[i], centered=True)
             i += 1
 
+    def _draw_footer(self) -> None:
+        """Draw a footer with left trip name, center current_step/total_steps, and right 'Seite #'"""
+        if getattr(self, "canvas", None) is None or not getattr(self, "current_trip_name", None):
+            return
+        margin = 30
+        y = 15
+
+        # Draw a thin black separator line above the footer
+        line_y = y + 12
+        self.canvas.setStrokeColorRGB(0, 0, 0)
+        self.canvas.setLineWidth(0.5)
+        self.canvas.line(margin, line_y, self.width - margin, line_y)
+
+        # Left: trip name (use MAIN_FONT if contains non-ASCII)
+        left_text = self.current_trip_name
+        left_font = ("Helvetica", 8)
+        if any(ord(ch) > 127 for ch in left_text):
+            left_font = (self.MAIN_FONT[0], 8)
+        self.canvas.setFont(*left_font)
+        self.canvas.drawString(margin, y, left_text)
+
+        # Center: step_counter (n/m)
+        total = getattr(self, "total_steps", None)
+        cur = getattr(self, "current_step", 0)
+        center_text = f"{cur}/{total}" if total is not None else ""
+        center_font = ("Helvetica", 8)
+        self.canvas.setFont(*center_font)
+        cx = self.calc_width_centered(center_text, center_font)
+        self.canvas.drawString(cx, y, center_text)
+
+        # Right: page number in German
+        right_text = f"Seite {self.page_number}"
+        right_font = ("Helvetica", 8)
+        self.canvas.setFont(*right_font)
+        right_x = self.width - margin - self.canvas.stringWidth(right_text, right_font[0], right_font[1])
+        self.canvas.drawString(right_x, y, right_text)
+
     def new_page(self) -> None:
-        """Add a new page to the canvas."""
+        """Add a new page to the canvas (draw footer for the current page)."""
+        # Draw footer for the current page, then show a new page
+        try:
+            self._draw_footer()
+        except Exception:
+            # Footer drawing must not break PDF generation
+            pass
         self.canvas.showPage()
+        # increase page counter for the new page
+        if hasattr(self, "page_number"):
+            self.page_number += 1
         self.width, self.height = letter
         self.y_position = self.height - 30
 
@@ -206,8 +261,7 @@ class PDFGenerator:
             draw_height *= scale
 
         if self.y_position - draw_height < 50:
-            self.canvas.showPage()
-            self.y_position = self.height - 30
+            self.new_page()
 
         x = (self.width - draw_width) / 2.0 if centered else 30
         self.canvas.drawImage(
@@ -266,8 +320,7 @@ class PDFGenerator:
         pair_height = max(h1, h2)
 
         if self.y_position - pair_height < 50:
-            self.canvas.showPage()
-            self.y_position = self.height - 30
+            self.new_page()
 
         x_left = (self.width - total_width) / 2.0 if centered else 30
         x1 = x_left
