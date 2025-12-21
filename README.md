@@ -5,6 +5,16 @@ Tool designed to parse and extract data from the travel tracking app [Polarsteps
 1. **Data backup**: The data export does not support viewing your data in any useful way. To preserve the data (who knows if Polarsteps still exists in 20 years), the tool combines the data and generates a PDF document.
 2. **Data analysis & visualization**: The parsed data can also be leveraged for in-depth analysis, enabling users to gain insights into their travel patterns, destinations visited, duration of stays, distances traveled, and more. This opens up possibilities for statistical analysis, trend identification, and visualization of the trip data (this is still work-in-progess).
 
+## Improvements
+
+This fork adds the following improvements:
+
+- display emojis correctly
+- add footer on each page
+- print weather information extracted from trip info
+- improve photo layout, place two photos side by side where possible
+- add border around photos
+
 ## Detailed Usage Guide
 
 If you’re new to Python or command-line tools, I’ve created a step-by-step usage guide to help you install and run polarsteps-data-parser (no programming experience required).
