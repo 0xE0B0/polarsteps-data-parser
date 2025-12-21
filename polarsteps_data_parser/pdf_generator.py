@@ -65,7 +65,7 @@ class PDFGenerator:
         self.short_text(
             f"{trip.start_date.strftime('%d-%m-%Y')} - {trip.end_date.strftime('%d-%m-%Y')}", bold=True, centered=True
         )
-        self.photo(trip.cover_photo_path, centered=True, photo_width=400)
+        self.photo(trip.cover_photo_path, centered=True, photo_width=500)
 
     def generate_step_pages(self, step: Step) -> None:
         """Add a step to the canvas."""

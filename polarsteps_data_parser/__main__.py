@@ -38,7 +38,7 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     input_folder = Path(input_folder)
     trip_data_path = input_folder / "trip.json"
     location_data_path = input_folder / "locations.json"
-    max_steps = 500
+    max_steps = 500  # DEBUG: limit number of steps for faster testing
     if not trip_data_path.exists() or not location_data_path.exists():
         log("Error: Cannot find Polarsteps trip in folder!")
         log("Please make sure the input folder contains a `trip.json` and a `locations.json` file. ")
@@ -50,6 +50,9 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
 
     log("🔄 Starting to parse trip...", color="cyan")
     trip = Trip.from_json(trip_data)
+
+    # overwrite cover photo to use local file
+    trip.cover_photo_path = str(input_folder / "cover_image.jpeg")
 
     if enrich_with_comments is True:
         StepCommentsEnricher(input_folder).enrich(trip)
