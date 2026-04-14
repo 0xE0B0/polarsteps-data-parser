@@ -102,7 +102,7 @@ class Step:
     weather_temperature: float | None = None
 
     @classmethod
-    def from_json(cls, data: dict) -> Self:
+    def from_json(cls, data: dict, input_folder: Path | None = None) -> Self:
         """Parse object from JSON data."""
         s = Step(
             step_id=data["id"],
@@ -116,18 +116,86 @@ class Step:
             weather_condition=data.get("weather_condition"),
             weather_temperature=data.get("weather_temperature"),
         )
-        s.load_media()
+        s.load_media(input_folder)
         return s
 
-    def load_media(self) -> None:
+    def load_media(self, input_folder: Path | None = None) -> None:
         """Load photos and videos for the step."""
         step_dir = find_folder_by_id(self.step_id)
         if step_dir is None:
             self.photos = []
             self.videos = []
         else:
-            self.photos = list_files_in_folder(step_dir / "photos", dir_has_to_exist=False)
+            photos_dir = step_dir / "photos"
+            self.photos = list_files_in_folder(photos_dir, dir_has_to_exist=False)
             self.videos = list_files_in_folder(step_dir / "videos", dir_has_to_exist=False)
+
+    def apply_photo_order(self, order: list[str]) -> tuple[int, int, list[str]]:
+        """Reorder loaded photos according to the provided ordered filenames.
+
+        Returns:
+            tuple[int, int, list[str]]: Number of ordered filenames matched locally, number of ordered filenames without a local match, and list of unmatched ordered names.
+        """
+        if not order or not self.photos:
+            return 0, 0, []
+
+        def normalize_name(name: str) -> str:
+            normalized = name.lower()
+            duplicate_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+            for ext in duplicate_extensions:
+                while normalized.endswith(ext + ext):
+                    normalized = normalized[: -len(ext)]
+            return normalized
+
+        def extract_prefix(name: str) -> str:
+            normalized = normalize_name(name)
+            return normalized.split("_", 1)[0]
+
+        ordered_photos: list[Path] = []
+        remaining_photos = {photo.name: photo for photo in self.photos}
+        normalized_photo_map = {normalize_name(name): photo for name, photo in remaining_photos.items()}
+        prefix_photo_map = {extract_prefix(name): photo for name, photo in remaining_photos.items()}
+        seen = set()
+        matched = 0
+        unmatched = 0
+        unmatched_names: list[str] = []
+
+        for item in order:
+            name = Path(item).name
+            if not name:
+                continue
+
+            normalized_name = normalize_name(name)
+            prefix_name = extract_prefix(name)
+            photo = None
+
+            if normalized_name in normalized_photo_map:
+                photo = normalized_photo_map[normalized_name]
+            elif prefix_name in prefix_photo_map:
+                photo = prefix_photo_map[prefix_name]
+            else:
+                for photo_name, local_photo in remaining_photos.items():
+                    if photo_name in seen:
+                        continue
+                    normalized_local = normalize_name(photo_name)
+                    if normalized_name == normalized_local or normalized_name in normalized_local or normalized_local in normalized_name:
+                        photo = local_photo
+                        break
+
+            if photo is not None and photo.name not in seen:
+                ordered_photos.append(photo)
+                seen.add(photo.name)
+                matched += 1
+            else:
+                unmatched += 1
+                unmatched_names.append(name)
+
+        for photo in self.photos:
+            if photo.name not in seen:
+                ordered_photos.append(photo)
+
+        self.photos = ordered_photos
+        return matched, unmatched, unmatched_names
 
 
 @dataclass
@@ -141,12 +209,12 @@ class Trip:
     steps: list[Step]
 
     @classmethod
-    def from_json(cls, data: dict) -> Self:
+    def from_json(cls, data: dict, input_folder: Path | None = None) -> Self:
         """Parse object from JSON data."""
         return Trip(
             name=data["name"],
             start_date=parse_date(data.get("start_date")),
             end_date=parse_date(data.get("end_date")),
             cover_photo_path=data["cover_photo_path"],
-            steps=[Step.from_json(step) for step in data.get("all_steps")],
+            steps=[Step.from_json(step, input_folder) for step in data.get("all_steps")],
         )

@@ -1,9 +1,10 @@
 from pathlib import Path
+import os
 
 import click
 from dotenv import load_dotenv
 
-from polarsteps_data_parser.retrieve_step_comments import StepCommentsEnricher
+from polarsteps_data_parser.retrieve_step_comments import StepCommentsEnricher, StepPhotoOrderEnricher
 from polarsteps_data_parser.model import Trip, Location
 from polarsteps_data_parser.pdf_generator import PDFGenerator
 from polarsteps_data_parser.utils import load_json_from_file, log
@@ -27,7 +28,14 @@ from polarsteps_data_parser.utils import load_json_from_file, log
     default=False,
     help="Whether to enrich the trip with comments or not.",
 )
-def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
+@click.option(
+    "--enrich-with-photo-order",
+    is_flag=True,
+    show_default=True,
+    default=False,
+    help="Fetch photo order from the Polarsteps web trip and reorder photos accordingly.",
+)
+def cli(input_folder: str, output: str, enrich_with_comments: bool, enrich_with_photo_order: bool) -> None:
     """Parse the data from a Polarsteps trip export.
 
     INPUT_FOLDER should contain the Polarsteps data export of one (!) trip. Make sure the folder contains
@@ -38,7 +46,7 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     input_folder = Path(input_folder)
     trip_data_path = input_folder / "trip.json"
     location_data_path = input_folder / "locations.json"
-    max_steps = 500  # DEBUG: limit number of steps for faster testing
+    max_steps = None
     if not trip_data_path.exists() or not location_data_path.exists():
         log("Error: Cannot find Polarsteps trip in folder!")
         log("Please make sure the input folder contains a `trip.json` and a `locations.json` file. ")
@@ -48,14 +56,30 @@ def cli(input_folder: str, output: str, enrich_with_comments: str) -> None:
     trip_data = load_json_from_file(trip_data_path, max_steps)
     location_data = load_json_from_file(location_data_path, max_steps)
 
+    if enrich_with_photo_order is True and not os.getenv("COOKIE"):
+        log("Error: COOKIE environment variable must be set for --enrich-with-photo-order.", color="red")
+        log(
+            "Export a logged-in Polarsteps browser session cookie and set it before running.",
+            color="red",
+        )
+        log(
+            "Example (PowerShell): $env:COOKIE='name=value; name2=value2'",
+            color="red",
+        )
+        return
+
     log("🔄 Starting to parse trip...", color="cyan")
-    trip = Trip.from_json(trip_data)
+    trip = Trip.from_json(trip_data, input_folder)
 
     # overwrite cover photo to use local file
     trip.cover_photo_path = str(input_folder / "cover_image.jpeg")
 
     if enrich_with_comments is True:
         StepCommentsEnricher(input_folder).enrich(trip)
+
+    if enrich_with_photo_order is True:
+        log("🔄 Enriching photo order...", color="cyan")
+        StepPhotoOrderEnricher(input_folder).enrich(trip)
 
     [Location.from_json(data) for data in location_data["locations"]]  # TODO! use location data
 
